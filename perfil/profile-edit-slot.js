@@ -46,6 +46,7 @@
     cep:                 { label: 'CEP',                  panel: 'text',  placeholder: '00000-000' },
     pais:                { label: 'País',                 panel: 'text',  placeholder: 'Digite o país' },
     empresa:             { label: 'Empresa',              panel: 'empresa' },
+    base_legal:          { label: 'Base legal',           panel: 'privacy' },
   };
 
   function getSocialAtIndex(index) {
@@ -92,6 +93,10 @@
       return u.startsWith('@') ? u : '@' + u;
     }
     if (field === 'data_nascimento') return formatDateDisplay(raw);
+    if (field === 'base_legal') {
+      const OPTIONS = window.__legalBasisPicker?.OPTIONS || [];
+      return OPTIONS.find(opt => opt.key === raw)?.label || raw || '';
+    }
     return raw || '';
   }
 
@@ -295,6 +300,35 @@
     };
   }
 
+  function initPrivacyField(root) {
+    const wrap = root?.querySelector('.legal-basis-select');
+    const picker = window.__legalBasisPicker;
+    if (!wrap || !picker) {
+      return {
+        setValue() {},
+        getValue() { return ''; },
+        closeDropdown() {},
+      };
+    }
+
+    if (!wrap._privacyBound) {
+      picker.initLegalSelect(wrap, document.getElementById('profile-edit-slot'));
+      wrap._privacyBound = true;
+    }
+
+    return {
+      setValue(value) {
+        picker.setLegalSelectValue(wrap, value);
+      },
+      getValue() {
+        return wrap.querySelector('input[type="hidden"]')?.value || '';
+      },
+      closeDropdown() {
+        picker.closeActiveDropdown();
+      },
+    };
+  }
+
   function init() {
     const slot = document.getElementById('profile-edit-slot');
     const labelEl = document.getElementById('profile-edit-slot-label');
@@ -312,6 +346,7 @@
       text: document.getElementById('profile-edit-slot-field-text'),
       date: document.getElementById('profile-edit-slot-field-date'),
       empresa: document.getElementById('profile-edit-slot-field-empresa'),
+      privacy: document.getElementById('profile-edit-slot-field-privacy'),
     };
     if (!slot || !emailInput || !textInput || !dateInput || !empresaNomeInput) return;
 
@@ -325,6 +360,7 @@
 
     const phoneApi = initPhoneField(document.getElementById('profile-slot-phone-field'));
     const socialApi = initSocialField(document.getElementById('profile-slot-social-field'));
+    const privacyApi = initPrivacyField(document.getElementById('profile-slot-privacy-field'));
 
     let anchorItem = null;
     let anchorEl = null;
@@ -376,6 +412,7 @@
       if (anchorItem) anchorItem.classList.remove('is-edit-slot-open');
       phoneApi.closeDropdown();
       socialApi.closeDropdown();
+      privacyApi.closeDropdown();
       window.__empresaAutocomplete?.close();
       anchorItem = null;
       anchorEl = null;
@@ -425,6 +462,9 @@
       } else if (def.panel === 'empresa') {
         originalRaw = getFieldRaw('empresa');
         empresaNomeInput.value = originalRaw || '';
+      } else if (def.panel === 'privacy') {
+        originalRaw = anchorItem?.dataset.baseLegal || '';
+        privacyApi.setValue(originalRaw);
       }
     }
 
@@ -437,6 +477,7 @@
       else if (def.panel === 'phone') phoneApi.focus();
       else if (def.panel === 'social') socialApi.focus();
       else if (def.panel === 'empresa') empresaNomeInput.focus();
+      else if (def.panel === 'privacy') privacyApi.closeDropdown();
     }
 
     function openSlot(item, valueEl, field, socialIndex) {
@@ -483,6 +524,12 @@
       }
       if (field === 'rede_social_usuario' && window.__refreshProfileSocials) {
         window.__refreshProfileSocials();
+      }
+      if (field === 'base_legal' && anchorEl && anchorItem) {
+        const OPTIONS = window.__legalBasisPicker?.OPTIONS || [];
+        const basisLabel = OPTIONS.find(opt => opt.key === newRaw)?.label || newRaw;
+        anchorEl.textContent = basisLabel || '—';
+        anchorItem.dataset.baseLegal = newRaw || '';
       }
     }
 
@@ -545,6 +592,42 @@
         if (nome === (originalRaw || '')) { closeSlot(); return; }
         payload = { empresa_nome: nome || null };
         newRaw = nome;
+      } else if (def.panel === 'privacy') {
+        const canal = anchorItem?.dataset.canal || '';
+        const newValue = privacyApi.getValue();
+        if (!canal || !newValue) {
+          errorEl.textContent = 'Selecione uma base legal.';
+          errorEl.classList.add('is-visible');
+          return;
+        }
+        if (newValue === (originalRaw || '')) { closeSlot(); return; }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Salvando...';
+
+        const { error } = await db.from('claude_contato_bases_legais').upsert({
+          contato_id: contactId,
+          canal,
+          base_legal: newValue,
+          status: 'opt_in',
+          atualizado_em: new Date().toISOString(),
+        }, { onConflict: 'contato_id,canal' });
+
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Salvar';
+
+        if (error) {
+          errorEl.textContent = 'Erro ao salvar: ' + error.message;
+          errorEl.classList.add('is-visible');
+          return;
+        }
+
+        newRaw = newValue;
+        const display = formatDisplay(activeField, newRaw);
+        if (anchorEl) anchorEl.textContent = display || '—';
+        afterSave(activeField, newRaw);
+        closeSlot();
+        return;
       }
 
       saveBtn.disabled = true;
@@ -644,6 +727,10 @@
         window.__empresaAutocomplete?.close();
         closed = true;
       }
+      if (slot.querySelector('.legal-select-dropdown.open')) {
+        privacyApi.closeDropdown();
+        closed = true;
+      }
       return closed;
     }
 
@@ -677,6 +764,14 @@
       item.dataset.socialBound = '1';
       bindField(item, item.querySelector('span'), 'rede_social_usuario');
     }
+
+    function bindPrivacyItem(item) {
+      if (!item || item.dataset.privacyBound === '1') return;
+      item.dataset.privacyBound = '1';
+      bindField(item, item.querySelector('.profile-privacy-value'), 'base_legal');
+    }
+
+    window.__bindProfilePrivacyItem = bindPrivacyItem;
 
     window.__bindProfileSocialItem = bindSocialItem;
 

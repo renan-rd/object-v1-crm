@@ -109,15 +109,6 @@
 
 
 
-    document.querySelectorAll('[data-accordion]').forEach(card => {
-      const head = card.querySelector('.overview-accordion-head');
-      if (!head) return;
-      head.addEventListener('click', () => {
-        const collapsed = card.classList.toggle('is-collapsed');
-        head.setAttribute('aria-expanded', String(!collapsed));
-      });
-    });
-
     document.querySelectorAll('.overview-tag').forEach(tag => {
       tag.addEventListener('click', () => {
         document.querySelectorAll('.overview-tag').forEach(t => t.classList.remove('is-active'));
