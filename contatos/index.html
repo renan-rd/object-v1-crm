@@ -1573,7 +1573,7 @@
       box-shadow: -6px 0 10px -4px rgba(0, 34, 51, 0.08);
     }
 
-    tbody tr:hover td.col-actions { background: #f5f7f8; }
+    tbody tr:not(.empty-state-row):hover td.col-actions { background: #f5f7f8; }
 
     thead th.col-actions { z-index: 3; }
 
@@ -1617,7 +1617,7 @@
     }
 
     tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: #f5f7f8; }
+    tbody tr:not(.empty-state-row):hover { background: #f5f7f8; }
 
     tbody tr.row-selected,
     tbody tr.row-selected td,
@@ -1656,6 +1656,23 @@
       border-left: 2.5px solid #002233;
       border-bottom: 2.5px solid #002233;
       transform: rotate(-45deg);
+    }
+
+    .checkbox.indeterminate {
+      background: #00DBFF;
+      border-color: #00DBFF;
+    }
+
+    .checkbox.indeterminate::after {
+      content: '';
+      position: absolute;
+      left: 3px;
+      top: 7.5px;
+      width: 12px;
+      height: 0;
+      border: none;
+      border-bottom: 2.5px solid #002233;
+      transform: none;
     }
 
     /* ── Bulk actions bar ─────────────────────────────── */
@@ -5001,6 +5018,42 @@
       });
     }
 
+    function emptyStateIllustration() {
+      return `<img src="./404.svg" width="360" height="242" alt="" style="display:block;width:100%;max-width:360px;height:auto;">`;
+    }
+
+    function renderEmptyState(colSpan, hasFilters) {
+      const clearBtnHtml = hasFilters
+        ? `<button type="button" id="contacts-empty-clear" style="height:40px;padding:8px 16px;background:#B2F4FF;border:none;cursor:pointer;border-radius:12px;color:#0077B2;font-size:16px;font-family:var(--font);font-weight:700;line-height:24px">Limpar filtros</button>`
+        : '';
+      const title = hasFilters ? 'Nenhum contato foi encontrado' : 'Você ainda não tem contatos';
+      const subtitle = hasFilters
+        ? 'Verifique se há filtros aplicados. <br/>Se você é novo por aqui, que tal cadastrar o seu primeiro contato?'
+        : 'Que tal cadastrar o seu primeiro contato?';
+      return `<tr class="empty-state-row"><td colspan="${colSpan}" style="padding:0;border:none">
+        <div style="width:100%;padding:32px;flex-direction:column;justify-content:center;align-items:center;display:flex">
+          ${emptyStateIllustration()}
+          <div style="padding-top:24px;padding-bottom:24px;flex-direction:column;justify-content:flex-start;align-items:center;gap:8px;display:flex;max-width:520px">
+            <div style="text-align:center;color:#002233;font-size:20px;font-family:var(--font);font-weight:700;line-height:30px">${title}</div>
+            <div style="text-align:center;color:#002233;font-size:16px;font-family:var(--font);font-weight:500;line-height:24px">${subtitle}</div>
+          </div>
+          <div style="justify-content:center;align-items:center;gap:12px;display:flex;flex-wrap:wrap">
+            ${clearBtnHtml}
+            <button type="button" id="contacts-empty-add" style="height:40px;padding:8px 16px;background:#003D5C;border:none;cursor:pointer;border-radius:12px;color:#00DBFF;font-size:16px;font-family:var(--font);font-weight:700;line-height:24px">Cadastrar contato</button>
+          </div>
+        </div>
+      </td></tr>`;
+    }
+
+    function bindEmptyStateActions() {
+      document.getElementById('contacts-empty-clear')?.addEventListener('click', () => {
+        window.__clearContactFilters && window.__clearContactFilters();
+      });
+      document.getElementById('contacts-empty-add')?.addEventListener('click', () => {
+        window.__openAddContact && window.__openAddContact();
+      });
+    }
+
     async function loadPage() {
       const colSpan = window.__tableColumns.filter(c => c.visible).length + 2;
       tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align:center;padding:32px;color:var(--color-text-low)">Carregando...</td></tr>`;
@@ -5060,7 +5113,15 @@
         totalEl.textContent = count;
       }
 
-      tbody.innerHTML = data.length ? data.map(renderRow).join('') : `<tr><td colspan="${colSpan}" style="text-align:center;padding:32px;color:var(--color-text-low)">Nenhum contato encontrado.</td></tr>`;
+      if (data.length) {
+        tbody.innerHTML = data.map(renderRow).join('');
+      } else {
+        const hasFilters = !!(f.search || f.quickFilter || f.nome || f.email || f.status || f.telefone || f.rede_social || f.username || f.empresa || f.cidade || f.estado);
+        tbody.innerHTML = renderEmptyState(colSpan, hasFilters);
+        bindEmptyStateActions();
+      }
+      syncHeaderCheckbox();
+      updateBulkBar();
       renderPagination();
     }
 
@@ -5687,6 +5748,7 @@
     }
 
     openBtn.addEventListener('click', openAdd);
+    window.__openAddContact = openAdd;
     closeBtn.addEventListener('click', closeDrawer);
     backBtn.addEventListener('click', backToPreviewPanel);
     cancelBtn.addEventListener('click', closeDrawer);
@@ -5707,6 +5769,22 @@
     const bulkCount = document.getElementById('bulk-count');
     const bulkClear = document.getElementById('bulk-clear');
 
+    function syncHeaderCheckbox() {
+      const allRows = document.querySelectorAll('#contacts-tbody .checkbox');
+      const headerCb = document.querySelector('thead .checkbox');
+      if (!headerCb) return;
+
+      const checkedCount = [...allRows].filter(c => c.classList.contains('checked')).length;
+      const total = allRows.length;
+
+      headerCb.classList.remove('checked', 'indeterminate');
+      if (total > 0 && checkedCount === total) {
+        headerCb.classList.add('checked');
+      } else if (checkedCount > 0) {
+        headerCb.classList.add('indeterminate');
+      }
+    }
+
     function updateBulkBar() {
       const checked = document.querySelectorAll('#contacts-tbody .checkbox.checked').length;
       if (checked > 0) {
@@ -5723,18 +5801,18 @@
 
       const isHeader = !!cb.closest('thead');
       if (isHeader) {
-        // Seleciona ou desmarca todos conforme estado atual
-        const allRows = document.querySelectorAll('#contacts-tbody .checkbox');
-        const allChecked = [...allRows].every(c => c.classList.contains('checked'));
-        allRows.forEach(c => c.classList.toggle('checked', !allChecked));
-        cb.classList.toggle('checked', !allChecked);
-      } else {
-        cb.classList.toggle('checked');
-        // Sincroniza header checkbox
         const allRows = document.querySelectorAll('#contacts-tbody .checkbox');
         const allChecked = allRows.length > 0 && [...allRows].every(c => c.classList.contains('checked'));
-        const headerCb = document.querySelector('thead .checkbox');
-        if (headerCb) headerCb.classList.toggle('checked', allChecked);
+
+        if (allChecked) {
+          allRows.forEach(c => c.classList.remove('checked'));
+        } else {
+          allRows.forEach(c => c.classList.add('checked'));
+        }
+        syncHeaderCheckbox();
+      } else {
+        cb.classList.toggle('checked');
+        syncHeaderCheckbox();
       }
 
       updateBulkBar();
@@ -5743,8 +5821,7 @@
     bulkClear.addEventListener('click', () => {
       document.querySelectorAll('#contacts-tbody .checkbox.checked')
         .forEach(cb => cb.classList.remove('checked'));
-      const headerCb = document.querySelector('thead .checkbox');
-      if (headerCb) headerCb.classList.remove('checked');
+      syncHeaderCheckbox();
       bulkBar.classList.remove('visible');
     });
 
@@ -6155,7 +6232,11 @@
       };
     }
 
-    function countActive(f) { return Object.values(f).filter(v => v && v !== '').length; }
+    const DRAWER_FILTER_KEYS = ['nome','email','status','telefone','rede_social','username','empresa','cidade','estado'];
+    function countActive(f) {
+      if (!f) return 0;
+      return DRAWER_FILTER_KEYS.filter(k => f[k] && f[k] !== '').length;
+    }
 
     function updateBadge(f) {
       const n = countActive(f);
@@ -6209,6 +6290,15 @@
       closeDrawer();
       window.__contactsReload && window.__contactsReload();
     });
+
+    // Clear every filter (drawer fields, search and quick filter) for the active tab
+    window.__clearContactFilters = () => {
+      clearForm();
+      window.__activeFilters = {};
+      updateBadge({});
+      if (window.__syncFilterBadge) window.__syncFilterBadge();
+      window.__contactsReload && window.__contactsReload();
+    };
 
     // Expose badge sync so tab switching can update it
     window.__syncFilterBadge = () => updateBadge(window.__activeFilters);
